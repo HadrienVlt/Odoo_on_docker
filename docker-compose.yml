@@ -1,0 +1,97 @@
+version: "3"
+services:
+  odoo:
+    image: odoo:14.0
+    depends_on:
+      - db
+    restart: always
+    networks:
+      - internal
+    environment:
+      - HOST=db
+      - USER=${ODOO_USER}
+      - PASSWORD=${ODOO_PASS}
+    volumes:
+      - ./odoo/odoo-web-data:/var/lib/odoo
+      - ./odoo/config:/etc/odoo
+      - ./odoo/addons:/mnt/extra-addons
+      - ./odoo/logs:/var/log/odoo
+    labels:
+      - 'traefik.http.routers.odoo.rule=Host(`${ODOO_TRAEFIK_URL}`)'
+      - 'traefik.http.routers.odoo.entrypoints=websecure'
+      - 'traefik.http.routers.odoo.service=odoo'
+      - 'traefik.http.routers.odoo.tls.certresolver=odoo'
+      - "traefik.http.services.odoo.loadbalancer.server.port=8069"
+      - "traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https@docker"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.odoo-im-https.rule=Host(`${ODOO_TRAEFIK_URL}`) && (PathPrefix(`/longpolling`))"
+      - "traefik.http.routers.odoo-im-https.entrypoints=websecure"
+      - "traefik.http.routers.odoo-im-https.service=odoo-im-https"
+      - "traefik.http.routers.odoo-im-https.tls.certresolver=odoo"
+      - "traefik.http.routers.odoo-im-https.middlewares=gzip"
+      - "traefik.http.services.odoo-im-https.loadbalancer.server.port=8072"
+      - "traefik.http.middlewares.gzip.compress=true"
+
+  db:
+    image: postgres:13
+    restart: always
+    networks:
+      - internal
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${ODOO_USER}
+      - POSTGRES_PASSWORD=${ODOO_PASS}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data/pgdata
+  traefik:
+    image: traefik:v2.5
+    restart: always
+    networks:
+      - internal
+      - web
+    ports:
+      # The HTTP port
+      - "80:80"
+      - "443:443"
+      # The Web UI (enabled by --api.insecure=true)
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - "./traefik/letsencrypt:/letsencrypt"
+      - "./traefik/traefik.yml:/etc/traefik.yml"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    command:
+     #- "--log.level=DEBUG"
+     - "--api.insecure=true"
+     - "--providers.docker"
+     - "--providers.docker.defaultRule=Host(`{{ trimPrefix `/` .Name }}.${TRAEFIK_DEFAULT_DOMAIN}`)"
+     - "--entryPoints.web.address=:80"
+     - "--entryPoints.websecure.address=:443"
+     - "--certificatesResolvers.odoo.acme.httpchallenge=true"
+     - "--certificatesresolvers.odoo.acme.httpchallenge.entrypoint=web"
+     - "--certificatesresolvers.odoo.acme.email=${ACME_EMAIL}"
+     - "--certificatesresolvers.odoo.acme.storage=/letsencrypt/acme.json"
+
+  pgadmin:
+    image: dpage/pgadmin4:6.7
+    depends_on:
+      - db
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "invitation@webinage.fr"
+      PGADMIN_DEFAULT_PASSWORD: "V8hwBZjqsleof45dhcndamcpsaHX4zU57"
+    ports:
+      - "5054:80"
+      - "5055:443"
+    networks:
+      - internal
+      - web
+    restart: unless-stopped
+
+networks:
+  internal:
+  web:
+      external: true
+
+
