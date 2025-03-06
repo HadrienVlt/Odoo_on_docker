@@ -1,1 +1,1 @@
-# Odoo on docker
+# Odoo 14 on docker
